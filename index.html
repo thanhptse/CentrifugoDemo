@@ -1,0 +1,112 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <script language="JavaScript" type="text/javascript" src="https://kjur.github.io/jsrsasign/jsrsasign-latest-all-min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script type="text/javascript" src="https://rawgit.com/centrifugal/centrifuge-js/master/dist/centrifuge.min.js"></script>
+    <script type="text/javascript" src="https://caligatio.github.io/jsSHA/sha.js"></script>
+
+    <script type="text/javascript">
+
+        function getJWT(user, secret) {
+            var oHeader = { alg: 'HS256', typ: 'JWT' };
+            // Payload
+            var oPayload = {};
+            var tEnd = KJUR.jws.IntDate.get('now + 1day');
+            oPayload.sub = user;
+            oPayload.exp = tEnd;
+            // Sign JWT, password=616161
+            var sHeader = JSON.stringify(oHeader);
+            var sPayload = JSON.stringify(oPayload);
+            var sJWT = KJUR.jws.JWS.sign("HS256", sHeader, sPayload, secret);
+            return sJWT;
+        }
+
+        var url = "ws://centrifugo2.herokuapp.com/connection/websocket";
+
+        // note that you MUST NEVER reveal project secret key in production
+        // this is just a demo where we generate connection token on client side
+        var secret = "secret";
+        var token = getJWT("thanh", secret);
+
+        var nickname = $('#nickname');
+        var input = $('#input');
+
+        var add_message = function (text, from) {
+            console.log(text);
+        }
+        var centrifuge = new Centrifuge(url);
+        console.log(token);
+        centrifuge.setToken(token);
+        var subscription;
+
+        var subscribe = function () {
+            subscription = centrifuge.subscribe('fan-club', function (message) {
+                if (message.data) {
+                    add_message(message.data["input"], message.data["nick"]);
+                }
+            });
+
+            subscription.on('subscribe', function () {
+                add_message("subscribed on channel fan-club");
+            });
+
+            subscription.presence().then(function (message) {
+            }, function (err) { });
+
+            subscription.on('join', function (message) {
+                //add_message('someone joined channel');
+            });
+
+            subscription.on('leave', function (message) {
+                //add_message('someone left channel');
+            });
+        }
+
+        centrifuge.on('connect', function () {
+            add_message("connected to Centrifugo");
+            subscribe();
+            setInterval(function () {
+                // Heroku closes inactive websocket connection after 55 sec,
+                // so let's send ping message periodically
+                centrifuge.ping();
+            }, 40000);
+        });
+
+        centrifuge.on('disconnect', function () {
+            add_message('disconnected from Centrifugo');
+        });
+
+        $(document).on('keypress', function (e) {
+            if (e.keyCode === 13 && centrifuge.isConnected() === true) {
+
+                var text = $("#input").val();
+                if (text.length === 0) {
+                    console.log('text = 0')
+                    return;
+
+                }
+                var nick = $("#nickname").val();
+                if (nick.length === 0) { nick = "anonymous"; }
+                data = {
+                    "nick": nick,
+                    "input": $("#input").val()
+                }
+                subscription.publish(data);
+                $("#input").val('');
+
+            }
+        });
+        centrifuge.connect();
+    </script>
+</head>
+
+<body>
+    <div id="input-wrapper">
+        <input type="text" id="nickname" placeholder="type nickname" />
+        <input type="text" id="input" placeholder="type your message and press ENTER" />
+    </div>
+</body>
+
+</html>
